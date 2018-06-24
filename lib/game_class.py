@@ -15,6 +15,7 @@ import numpy as np
 
 from pygame.sprite import Group, collide_mask, groupcollide
 from sprite_classes import ShipSprite, AIShipSprite
+from animation_classes import TrackingAnimation
 
 class Game(object):
     
@@ -22,8 +23,7 @@ class Game(object):
                  screen_width=1500,
                  screen_height=700,
                  fps=60,
-                 background_image = None,
-                enemy_down_time_in_seconds = 2):
+                 background_image = None):
         '''Initializes the game object and also the game'''
         
         # initialize pygame (handles pretty much eveything)
@@ -32,9 +32,8 @@ class Game(object):
         # create clock    
         self.clock = pg.time.Clock()
         
-        self.background_image = pg.image.load('./graphics/star_wars_background_24bit.bmp')
+        self.background_image = pg.image.load('./graphics/misc/star_wars_background_24bit.bmp')
         self.fps = fps
-        self.enemy_down_time_in_seconds = enemy_down_time_in_seconds
         
         # initialize main screen
         size = screen_width, screen_height # set screen size
@@ -49,8 +48,8 @@ class Game(object):
         
         
         # set player and enemy ship and laser types
-        allied_ship, allied_laser = 'xwing', 'red'
-        hostile_ship, hostile_laser = 'tiefighter', 'green'
+        allied_ship, allied_laser = 'tieinterceptor', 'green'
+        hostile_ship, hostile_laser = 'xwing', 'red'
         
         # set game attributes from meta data for player
         
@@ -108,7 +107,10 @@ class Game(object):
         self.hostile_laser_beams = Group()
         
         # animation group
-        self.animations = Group()        
+        self.animations = Group()
+        
+        # information displays
+        self.ship_stats = Group()
         
         # create player sprite and add to relevant groups / provide with relevant groups
         player = self.spawn_player(center=np.array([1400,350]),
@@ -121,8 +123,8 @@ class Game(object):
         self.spawn_ai_squadron('allied',
                                centers=[np.array([1400,100]),
                                         np.array([1400,700])],
-                                angles=[0,
-                                        0],
+                                angles=[180,
+                                        180],
                                 speeds=[300,
                                         300],
                                 d_angle_degrees_per_seconds = [150,
@@ -133,11 +135,11 @@ class Game(object):
         # create three enemies
         self.spawn_ai_squadron('hostile',
                                centers=[np.array([50,100]),
-                                        np.array([350,100]),
+                                        np.array([50,350]),
                                         np.array([50,700])],
-                                angles=[180,
-                                        180,
-                                        180],
+                                angles=[0,
+                                        0,
+                                        0],
                                 speeds=[300,
                                         300,
                                         300],
@@ -153,6 +155,12 @@ class Game(object):
         hostile_down = False
         ally_down = False
         
+        # initialize pause state variable
+        paused = False
+        
+        # initiazlie sound toggle variable
+        sound = False
+        
         # start main game loop
         while True:
             # check for exit events
@@ -163,6 +171,18 @@ class Game(object):
                     pg.quit()
                     sys.exit()
                 elif event.type == pg.KEYDOWN:
+                    
+                    # toggle pause state if needed
+                    if event.key == pg.K_ESCAPE:
+                        paused = not paused
+                        
+                    # toggle sound if needed
+                    if event.key == pg.K_s:
+                        sound = not sound
+                        
+                        # update sprites if needed
+                        for ship in self.all_ships.sprites():
+                            ship._sound = sound
                     
                     # control player fire mode
                     if event.key == pg.K_f:
@@ -219,14 +239,16 @@ class Game(object):
                                 d_angle_degrees_per_second = 150,
                                 max_speed_pixel_per_second=300)
                 
-            # update game state
-            self.update_game_state()
+            if not paused:
             
-            # draw update game state to screen
-            self.draw_game_state()
-            
-            # check and handle collisions
-            hostile_down, ally_down = self.handle_collisions()
+                # update game state
+                self.update_game_state()
+                
+                # draw update game state to screen
+                self.draw_game_state()
+                
+                # check and handle collisions
+                hostile_down, ally_down = self.handle_collisions()
                         
             # control pace
             self.clock.tick(fps)
@@ -238,6 +260,7 @@ class Game(object):
         self.allied_laser_beams.update()
         self.hostile_laser_beams.update()
         self.animations.update()
+        self.ship_stats.update()
         
     def draw_game_state(self):
         '''Draws updated game state by wiping the game's main surface,
@@ -251,6 +274,7 @@ class Game(object):
         self.allied_laser_beams.draw(self.screen) # draw player lasers
         self.hostile_laser_beams.draw(self.screen) # draw enemy lasers
         self.animations.draw(self.screen) # draw animations
+        self.ship_stats.draw(self.screen) # draw frames and ship ids
                    
         # flip canvas
         pg.display.flip()
@@ -273,8 +297,20 @@ class Game(object):
             player_sprite._d_speed += player_sprite._d_speed_pixel_per_frame
         if pressed_keys[pg.K_DOWN]:
             player_sprite._d_speed -= player_sprite._d_speed_pixel_per_frame
+            
+    def _get_id_image(self,
+                      ship_id,
+                      size=(50,50)):
+        '''Takes the ship_id and makes and returns a pygame surface with that 
+        ID in the bottom right corner.'''
+        
+        largeText = pg.font.Font('freesansbold.ttf',12)
+        textSurface = largeText.render(ship_id, True, (254,254,254))
+        
+        return [textSurface]
         
     def spawn_player(self,
+                     ship_id = "P",
                      center = np.array([900,300]),
                     angle=0,
                     speed=200,
@@ -284,6 +320,7 @@ class Game(object):
         
         '''Creates a new PlayerShipSprite object and adds it to the game.'''        
         
+        # create ship sprite object
         player = ShipSprite(self.fps,
                           self.screen,
                           self.allied_images,
@@ -294,7 +331,7 @@ class Game(object):
                           self.allied_laser_images,
                           1.2, # laser range in seconds
                           150, # laser speed in pixel per second
-                          2, # laser rate of fire in seconds
+                          1.5, # laser rate of fire in seconds
                           self.allied_muzzle_images,
                           self.allied_muzzle_spi, # seconds per image for muzzle flash
                           self.explosion_sound, # sound of explosion animation
@@ -312,11 +349,39 @@ class Game(object):
                           d_speed_pixel_per_second = d_speed_pixel_per_second,
                           max_speed_pixel_per_second = max_speed_pixel_per_second)
         
+        # sync player controls with keyboard state
         self._sync_player_(player)
+        
+        # draw frame around player ship
+        TrackingAnimation(self.fps,
+                         self.screen,
+                         [pg.image.load("./graphics/misc/player_frame.bmp")],
+                         10000,
+                         player,
+                         np.array([0,0]).astype('float'),
+                         self.ship_stats,
+                         looping = True,
+                         dynamic_angle = False)
+        
+                # get ship_id display surface
+        ship_id_images = self._get_id_image(ship_id,
+                                            (50,50))
+        
+        # draw ship id for hostile ship
+        TrackingAnimation(self.fps,
+                          self.screen,
+                          ship_id_images,
+                          10000,
+                          player,
+                          np.array([15,25]).astype('float'),
+                         self.ship_stats,
+                         looping = True,
+                         dynamic_angle = False)
 
         return player
     
     def spawn_ally(self,
+                   ship_id,
                    center = np.array([1200,500]),
                    angle = 180,
                    speed = 200,
@@ -325,7 +390,8 @@ class Game(object):
                     max_speed_pixel_per_second = 350):
         '''Creates a new allied AIShipSprite and adds it to the game.'''
         
-        AIShipSprite(self.fps,
+        # spawn AI controlled allied ship sprite
+        ally = AIShipSprite(self.fps,
                         self.screen, # main screen
                         self.allied_images, # sequence with ShipSprite's skin
                         self.allied_gun_offsets,
@@ -335,7 +401,7 @@ class Game(object):
                         self.allied_laser_images, # sequence with laser beam skin
                         1.2,
                         150,
-                        2, # laser rate of fire in shots/second
+                        1.5, # laser rate of fire in shots/second
                         self.allied_muzzle_images, # sequence of images for muzzle flash animation
                         self.allied_muzzle_spi, # seconds per image for muzzle flash animation
                         self.explosion_sound,
@@ -356,9 +422,35 @@ class Game(object):
                         d_angle_degrees_per_second = d_angle_degrees_per_second,
                         d_speed_pixel_per_second = d_speed_pixel_per_second,
                         max_speed_pixel_per_second = max_speed_pixel_per_second)
+        
+        # draw frame around ally ship
+        TrackingAnimation(self.fps,
+                         self.screen,
+                         [pg.image.load("./graphics/misc/ally_frame.bmp")],
+                         10000,
+                         ally,
+                          np.array([0,0]).astype('float'),
+                         self.ship_stats,
+                         looping = True,
+                         dynamic_angle = False)
+        
+        # get ship_id display surface
+        ship_id_images = self._get_id_image(ship_id)
+        
+        # draw ship id for hostile ship
+        TrackingAnimation(self.fps,
+                          self.screen,
+                          ship_id_images,
+                          10000,
+                          ally,
+                          np.array([15,15]).astype('float'),
+                         self.ship_stats,
+                         looping = True,
+                         dynamic_angle = False)
                     
     
     def spawn_hostile(self,
+                      ship_id,
                     center = np.array([1200,50]),
                     angle=0,
                     speed=200,
@@ -368,7 +460,8 @@ class Game(object):
         
         '''Creates a new hostile AIShipSprite and adds it to the game.'''
         
-        AIShipSprite(self.fps,
+        # spawn hostile AI controlled ship sprite
+        hostile = AIShipSprite(self.fps,
                         self.screen, # main screen
                         self.hostile_images, # sequence with ShipSprite's skin
                         self.hostile_gun_offsets,
@@ -378,7 +471,7 @@ class Game(object):
                         self.hostile_laser_images, # sequence with laser beam skin
                         1.2,
                         150,
-                        2, # laser rate of fire in shots/second
+                        1.5, # laser rate of fire in shots/second
                         self.hostile_muzzle_images, # sequence of images for muzzle flash animation
                         self.hostile_muzzle_spi, # seconds per image for muzzle flash animation
                         self.explosion_sound,
@@ -400,6 +493,31 @@ class Game(object):
                         d_speed_pixel_per_second = d_speed_pixel_per_second,
                         max_speed_pixel_per_second = max_speed_pixel_per_second)
         
+        # draw frame around hostile ship
+        TrackingAnimation(self.fps,
+                         self.screen,
+                         [pg.image.load("./graphics/misc/hostile_frame.bmp")],
+                         10000,
+                         hostile,
+                          np.array([0,0]).astype('float'),
+                         self.ship_stats,
+                         looping = True,
+                         dynamic_angle = False)
+        
+        # get ship_id display surface
+        ship_id_images = self._get_id_image(ship_id)
+        
+        # draw ship id for hostile ship
+        TrackingAnimation(self.fps,
+                          self.screen,
+                          ship_id_images,
+                          10000,
+                          hostile,
+                          np.array([20,20]).astype('float'),
+                         self.ship_stats,
+                         looping = True,
+                         dynamic_angle = False)
+        
     def spawn_ai_squadron(self,
                        side,
                        centers,
@@ -410,24 +528,34 @@ class Game(object):
         '''Util function to spawn a group of allied or hostile ships. Usually
         used at beginning of game.'''
         
+        ship_id_counter = 1 # counter
+        ship_id_tail = side[0].upper() # initial of side
+        
         for center, angle, speed, d_angle, max_speed in zip(centers,
                                                             angles,
                                                             speeds,
                                                             d_angle_degrees_per_seconds,
                                                             max_speed_pixel_per_seconds):
+            
+            ship_id = str(ship_id_counter) + ship_id_tail
+            
             if side == 'allied':
-                self.spawn_ally(center=center,
+                self.spawn_ally(ship_id,
+                                center=center,
                                 angle=angle,
                                 speed=speed,
                                 d_angle_degrees_per_second=d_angle,
                                 max_speed_pixel_per_second=max_speed)
                 
             elif side == 'hostile':
-                self.spawn_hostile(center=center,
-                                angle=angle,
-                                speed=speed,
-                                d_angle_degrees_per_second=d_angle,
-                                max_speed_pixel_per_second=max_speed)
+                self.spawn_hostile(ship_id,
+                                   center=center,
+                                    angle=angle,
+                                    speed=speed,
+                                    d_angle_degrees_per_second=d_angle,
+                                    max_speed_pixel_per_second=max_speed)
+                
+            ship_id_counter += 1
         
         
     def handle_collisions(self):
@@ -448,13 +576,11 @@ class Game(object):
         for hit_ally in hit_allies:
             # update hit ship's hit points attribute
             hit_ally._hit_points -= 1
-            print('ally hit!')
-            print('ally hit points left:',hit_ally._hit_points)
             
             # if ship has no more hit points left, destroy and set flag
             if not hit_ally._hit_points:
                 hit_ally.kill()
-                ally_down = True
+                #ally_down = True
         
         # check for player kills
         hit_hostiles = groupcollide(self.hostile_ships,
@@ -466,20 +592,18 @@ class Game(object):
         for hit_hostile in hit_hostiles:
             # update hit ship's hit points attribute
             hit_hostile._hit_points -= 1
-            print('hostile hit!')
-            print('hostile hit points left:',hit_hostile._hit_points)
             
             # if ship has no more hit points left, destroy and flag
             if not hit_hostile._hit_points:
                 hit_hostile.kill()
-                hostile_down = True
+                #hostile_down = True
             
         return hostile_down, ally_down
             
             
 def main():
     # make sure directory is repo head
-    os.chdir('C:/Users/bettmensch/GitReps/star_wars_dogfighter')
+    os.chdir('..')
     
     
     Game()
